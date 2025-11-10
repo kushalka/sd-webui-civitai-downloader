@@ -68,8 +68,21 @@ class CivitaiDownloader:
                 data = response.json()
                 if 'modelVersions' in data and len(data['modelVersions']) > 0:
                     return str(data['modelVersions'][0]['id']), None
-            
-            return None, f"Не удалось получить информацию о модели (код {response.status_code})"
+                return None, "Модель не содержит версий для скачивания"
+            elif response.status_code == 401:
+                return None, "Неверный API ключ. Проверьте ключ или удалите его для публичных моделей"
+            elif response.status_code == 403:
+                return None, "Доступ запрещён. Возможно, модель приватная и требует API ключ"
+            elif response.status_code == 404:
+                return None, "Модель не найдена. Проверьте правильность ссылки"
+            elif response.status_code == 429:
+                return None, "Превышен лимит запросов. Подождите немного и попробуйте снова"
+            else:
+                return None, f"Ошибка сервера Civitai (код {response.status_code})"
+        except requests.exceptions.Timeout:
+            return None, "Превышено время ожидания. Проверьте подключение к интернету"
+        except requests.exceptions.ConnectionError:
+            return None, "Не удалось подключиться к Civitai. Проверьте подключение к интернету"
         except Exception as e:
             return None, f"Ошибка при запросе к API: {str(e)}"
     
@@ -88,8 +101,20 @@ class CivitaiDownloader:
             
             if response.status_code == 200:
                 return response.json(), None
+            elif response.status_code == 401:
+                return None, "Неверный API ключ. Проверьте ключ или удалите его"
+            elif response.status_code == 403:
+                return None, "Доступ запрещён. Модель требует API ключ или недоступна"
+            elif response.status_code == 404:
+                return None, "Версия модели не найдена"
+            elif response.status_code == 429:
+                return None, "Превышен лимит запросов. Подождите и попробуйте снова"
             else:
-                return None, f"Ошибка API: {response.status_code}"
+                return None, f"Ошибка сервера Civitai (код {response.status_code})"
+        except requests.exceptions.Timeout:
+            return None, "Превышено время ожидания. Проверьте интернет-соединение"
+        except requests.exceptions.ConnectionError:
+            return None, "Не удалось подключиться к Civitai. Проверьте интернет"
         except Exception as e:
             return None, f"Ошибка запроса: {str(e)}"
     
@@ -145,7 +170,17 @@ class CivitaiDownloader:
         progress(0.3, desc=f"Скачивание {filename}...")
         
         try:
-            response = requests.get(download_url, stream=True, timeout=60)
+            response = requests.get(download_url, stream=True, timeout=120)
+            
+            if response.status_code == 401:
+                return "❌ Ошибка авторизации. Проверьте API ключ"
+            elif response.status_code == 403:
+                return "❌ Доступ запрещён. Возможно, модель требует API ключ или подписку"
+            elif response.status_code == 404:
+                return "❌ Файл не найден. Возможно, модель была удалена"
+            elif response.status_code == 429:
+                return "❌ Превышен лимит скачиваний. Попробуйте позже"
+            
             response.raise_for_status()
             
             total_size = int(response.headers.get('content-length', 0))
@@ -160,19 +195,36 @@ class CivitaiDownloader:
                             progress_val = 0.3 + (downloaded / total_size) * 0.7
                             progress(progress_val, desc=f"Скачивание: {downloaded / 1024 / 1024:.1f} / {total_size / 1024 / 1024:.1f} MB")
             
+            # Verify file was downloaded
+            if os.path.exists(lora_path) and os.path.getsize(lora_path) == 0:
+                os.remove(lora_path)
+                return "❌ Скачан пустой файл. Попробуйте снова"
+            
             model_name = model_info.get('model', {}).get('name', 'Unknown')
             version_name = model_info.get('name', '')
             
             return f"✅ Успешно скачано!\n\nМодель: {model_name}\nВерсия: {version_name}\nФайл: {filename}\nПуть: {lora_path}"
         
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.Timeout:
             if os.path.exists(lora_path):
                 os.remove(lora_path)
-            return f"❌ Ошибка скачивания: {str(e)}"
+            return "❌ Превышено время ожидания. Файл слишком большой или медленное соединение"
+        except requests.exceptions.ConnectionError:
+            if os.path.exists(lora_path):
+                os.remove(lora_path)
+            return "❌ Потеряно соединение с интернетом во время скачивания"
+        except requests.exceptions.HTTPError as e:
+            if os.path.exists(lora_path):
+                os.remove(lora_path)
+            return f"❌ Ошибка HTTP при скачивании: {e}"
+        except OSError as e:
+            if os.path.exists(lora_path):
+                os.remove(lora_path)
+            return f"❌ Ошибка записи файла: {e}. Проверьте права доступа и свободное место"
         except Exception as e:
             if os.path.exists(lora_path):
                 os.remove(lora_path)
-            return f"❌ Ошибка: {str(e)}"
+            return f"❌ Неизвестная ошибка: {str(e)}"
 
 downloader = CivitaiDownloader()
 
