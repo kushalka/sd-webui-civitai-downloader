@@ -25,12 +25,13 @@ class DownloadResponse(BaseModel):
     path: str = None
     model_name: str = None
     version_name: str = None
+    error: str = None
 
 
 def civitai_api(_: gr.Blocks, app):
     """Register API endpoints"""
     
-    @app.post("/civitai/download", response_model=DownloadResponse)
+    @app.post("/civitai/download")
     async def download_model(request: DownloadRequest):
         """
         Download a model from Civitai
@@ -47,6 +48,7 @@ def civitai_api(_: gr.Blocks, app):
         - model_name: Model name from Civitai
         - version_name: Version name from Civitai
         """
+        lora_path = None
         try:
             # Set API key
             downloader.api_key = request.api_key.strip() if request.api_key else None
@@ -60,16 +62,28 @@ def civitai_api(_: gr.Blocks, app):
             # Extract model ID
             version_id, error = downloader.extract_model_id(request.url)
             if error:
-                raise HTTPException(status_code=400, detail=error)
+                return DownloadResponse(
+                    success=False,
+                    message=error,
+                    error=error
+                )
             
             # Get model info
             model_info, error = downloader.get_model_info(version_id)
             if error:
-                raise HTTPException(status_code=400, detail=error)
+                return DownloadResponse(
+                    success=False,
+                    message=error,
+                    error=error
+                )
             
             # Get download URL and filename
             if 'files' not in model_info or len(model_info['files']) == 0:
-                raise HTTPException(status_code=404, detail="No files found for download")
+                return DownloadResponse(
+                    success=False,
+                    message="No files found for download",
+                    error="No files found for download"
+                )
             
             file_info = model_info['files'][0]
             download_url = file_info['downloadUrl']
@@ -95,15 +109,35 @@ def civitai_api(_: gr.Blocks, app):
             response = requests.get(download_url, stream=True, timeout=120)
             
             if response.status_code == 401:
-                raise HTTPException(status_code=401, detail="Authorization error. Check API key")
+                return DownloadResponse(
+                    success=False,
+                    message="Authorization error. Check API key",
+                    error="Authorization error. Check API key"
+                )
             elif response.status_code == 403:
-                raise HTTPException(status_code=403, detail="Access forbidden. Model may require API key or subscription")
+                return DownloadResponse(
+                    success=False,
+                    message="Access forbidden. Model may require API key or subscription",
+                    error="Access forbidden. Model may require API key or subscription"
+                )
             elif response.status_code == 404:
-                raise HTTPException(status_code=404, detail="File not found. Model may have been deleted")
+                return DownloadResponse(
+                    success=False,
+                    message="File not found. Model may have been deleted",
+                    error="File not found. Model may have been deleted"
+                )
             elif response.status_code == 429:
-                raise HTTPException(status_code=429, detail="Download limit exceeded. Try later")
-            
-            response.raise_for_status()
+                return DownloadResponse(
+                    success=False,
+                    message="Download limit exceeded. Try later",
+                    error="Download limit exceeded. Try later"
+                )
+            elif response.status_code != 200:
+                return DownloadResponse(
+                    success=False,
+                    message=f"HTTP error {response.status_code}",
+                    error=f"HTTP error {response.status_code}"
+                )
             
             total_size = int(response.headers.get('content-length', 0))
             downloaded = 0
@@ -117,7 +151,11 @@ def civitai_api(_: gr.Blocks, app):
             # Verify file was downloaded
             if os.path.exists(lora_path) and os.path.getsize(lora_path) == 0:
                 os.remove(lora_path)
-                raise HTTPException(status_code=500, detail="Downloaded empty file")
+                return DownloadResponse(
+                    success=False,
+                    message="Downloaded empty file",
+                    error="Downloaded empty file"
+                )
             
             model_name = model_info.get('model', {}).get('name', 'Unknown')
             version_name = model_info.get('name', '')
@@ -132,19 +170,29 @@ def civitai_api(_: gr.Blocks, app):
             )
         
         except requests.exceptions.Timeout:
-            if os.path.exists(lora_path):
+            if lora_path and os.path.exists(lora_path):
                 os.remove(lora_path)
-            raise HTTPException(status_code=504, detail="Timeout. File too large or slow connection")
+            return DownloadResponse(
+                success=False,
+                message="Timeout. File too large or slow connection",
+                error="Timeout. File too large or slow connection"
+            )
         except requests.exceptions.ConnectionError:
-            if os.path.exists(lora_path):
+            if lora_path and os.path.exists(lora_path):
                 os.remove(lora_path)
-            raise HTTPException(status_code=503, detail="Connection lost during download")
-        except HTTPException:
-            raise
+            return DownloadResponse(
+                success=False,
+                message="Connection lost during download",
+                error="Connection lost during download"
+            )
         except Exception as e:
-            if 'lora_path' in locals() and os.path.exists(lora_path):
+            if lora_path and os.path.exists(lora_path):
                 os.remove(lora_path)
-            raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+            return DownloadResponse(
+                success=False,
+                message=f"Unexpected error: {str(e)}",
+                error=f"Unexpected error: {str(e)}"
+            )
     
     @app.get("/civitai/status")
     async def get_status():
