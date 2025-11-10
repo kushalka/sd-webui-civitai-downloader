@@ -1,5 +1,6 @@
 # API key storage
 civitai_api_key.json
+default_api_key.txt
 
 # Python
 __pycache__/

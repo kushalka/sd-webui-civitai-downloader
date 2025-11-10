@@ -10,6 +10,7 @@ class CivitaiDownloader:
     def __init__(self):
         self.api_key = None
         self.config_file = os.path.join(scripts.basedir(), "civitai_api_key.json")
+        self.default_key_file = os.path.join(scripts.basedir(), "default_api_key.txt")
         
     def load_api_key(self):
         """Load saved API key from config file"""
@@ -21,6 +22,18 @@ class CivitaiDownloader:
         except Exception as e:
             print(f"Error loading API key: {e}")
         return ''
+    
+    def load_default_api_key(self):
+        """Load default API key from file if exists"""
+        try:
+            if os.path.exists(self.default_key_file):
+                with open(self.default_key_file, 'r') as f:
+                    key = f.read().strip()
+                    if key:
+                        return key
+        except Exception as e:
+            print(f"Error loading default API key: {e}")
+        return None
     
     def save_api_key(self, api_key):
         """Save API key to config file"""
@@ -121,6 +134,12 @@ class CivitaiDownloader:
     def download_model(self, url, api_key, progress=gr.Progress()):
         """Download LoRA model from Civitai"""
         self.api_key = api_key.strip() if api_key else None
+        
+        # If no user key, try default key
+        if not self.api_key:
+            default_key = self.load_default_api_key()
+            if default_key:
+                self.api_key = default_key
         
         # Auto-save or delete API key
         if self.api_key:
