@@ -5,6 +5,7 @@ Allows external bots to download models via HTTP requests
 
 import os
 import json
+import gradio as gr
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from modules.api.models import *
@@ -152,10 +153,11 @@ def civitai_api(_: gr.Blocks, app):
 
 
 try:
-    import gradio as gr
     from modules import script_callbacks
     
     script_callbacks.on_app_started(civitai_api)
     print("[Civitai API] REST API endpoints registered")
 except Exception as e:
     print(f"[Civitai API] Failed to register API endpoints: {e}")
+    import traceback
+    traceback.print_exc()
