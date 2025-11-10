@@ -9,6 +9,7 @@
 - 📊 Отображение прогресса скачивания
 - ✅ Автоматическое определение версии модели
 - 💾 Сохранение в стандартную папку Lora
+- 🤖 **REST API для интеграции с Telegram ботами** (новое!)
 
 ## Установка
 
@@ -68,6 +69,44 @@ git clone https://github.com/ваш-username/sd-webui-civitai-downloader.git
 - `https://civitai.com/models/123456` - автоматически скачается последняя версия
 - `https://civitai.com/models/123456?modelVersionId=789` - скачается указанная версия
 
+## Интеграция с Telegram ботом
+
+Расширение предоставляет REST API, который позволяет вашему Telegram боту удалённо скачивать модели на все ваши PC с SD WebUI!
+
+### Быстрый старт
+
+1. Запустите WebUI с флагами `--api` и `--listen`:
+   ```bash
+   python webui.py --api --listen
+   ```
+
+2. Проверьте доступность API:
+   ```bash
+   curl http://localhost:7860/civitai/status
+   ```
+
+3. Используйте в вашем Telegram боте:
+   ```python
+   import requests
+   
+   response = requests.post(
+       "http://192.168.1.100:7860/civitai/download",
+       json={
+           "url": "https://civitai.com/models/123456",
+           "api_key": "your_civitai_api_key"  # Опционально
+       }
+   )
+   
+   result = response.json()
+   print(f"Downloaded: {result['filename']}")
+   ```
+
+### Подробная документация
+
+📚 **Смотрите [API_INTEGRATION.md](API_INTEGRATION.md)** - полная документация по интеграции с Telegram ботом
+
+📦 **Смотрите [telegram_bot_example.py](telegram_bot_example.py)** - готовые примеры кода для aiogram и python-telegram-bot
+
 ## Требования
 
 - Stable Diffusion WebUI (AUTOMATIC1111)
@@ -79,8 +118,11 @@ git clone https://github.com/ваш-username/sd-webui-civitai-downloader.git
 ```
 sd-webui-civitai-downloader/
 ├── scripts/
-│   └── civitai_downloader.py  # Основной скрипт расширения
-└── README.md                   # Документация
+│   ├── civitai_downloader.py  # Основной скрипт расширения
+│   └── civitai_api.py         # REST API для Telegram ботов
+├── README.md                   # Основная документация
+├── API_INTEGRATION.md         # Документация API
+└── telegram_bot_example.py    # Примеры интеграции с ботом
 ```
 
 ## Устранение неполадок
