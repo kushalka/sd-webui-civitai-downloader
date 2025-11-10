@@ -245,6 +245,7 @@ class CivitaiDownloader:
                 os.remove(lora_path)
             return f"❌ Неизвестная ошибка: {str(e)}"
 
+# Create a single global instance
 downloader = CivitaiDownloader()
 
 def on_ui_tabs():
@@ -302,4 +303,7 @@ def on_ui_tabs():
     
     return [(civitai_downloader_tab, "Civitai Downloader", "civitai_downloader")]
 
-script_callbacks.on_ui_tabs(on_ui_tabs)
+# Only register UI tabs when module is loaded directly by the extension system
+# This prevents duplicate registration when imported by other modules
+if __name__ != "__main__":
+    script_callbacks.on_ui_tabs(on_ui_tabs)
