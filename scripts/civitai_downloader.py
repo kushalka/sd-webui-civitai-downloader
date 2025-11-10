@@ -264,8 +264,7 @@ def on_ui_tabs():
                     label="API ключ Civitai (автоматически сохраняется)",
                     placeholder="Ваш API ключ",
                     type="password",
-                    lines=1,
-                    value=downloader.load_api_key()
+                    lines=1
                 )
                 
                 download_btn = gr.Button("📥 Скачать", variant="primary", size="lg")
@@ -288,6 +287,12 @@ def on_ui_tabs():
         2. Перейдите в Settings → API Keys
         3. Создайте новый ключ и скопируйте его
         """)
+        
+        # Load API key on tab load
+        civitai_downloader_tab.load(
+            fn=lambda: downloader.load_api_key(),
+            outputs=[api_key_input]
+        )
         
         download_btn.click(
             fn=downloader.download_model,
