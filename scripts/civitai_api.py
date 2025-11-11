@@ -205,12 +205,22 @@ def civitai_api(_: gr.Blocks, app):
         return {"status": "online", "service": "civitai-downloader"}
 
 
+def register_api():
+    """Register API endpoints when app starts"""
+    try:
+        from modules import script_callbacks
+        
+        script_callbacks.on_app_started(civitai_api)
+        print("[Civitai API] REST API endpoints registered")
+    except Exception as e:
+        print(f"[Civitai API] Failed to register API endpoints: {e}")
+        import traceback
+        traceback.print_exc()
+
+# Only register if this module is imported by WebUI
 try:
     from modules import script_callbacks
-    
-    script_callbacks.on_app_started(civitai_api)
-    print("[Civitai API] REST API endpoints registered")
-except Exception as e:
-    print(f"[Civitai API] Failed to register API endpoints: {e}")
-    import traceback
-    traceback.print_exc()
+    register_api()
+except ImportError:
+    # WebUI modules not available, skip registration
+    pass
