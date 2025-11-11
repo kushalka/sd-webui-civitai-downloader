@@ -5,14 +5,23 @@ Allows external bots to download models via HTTP requests
 
 import os
 import json
+import sys
+from pathlib import Path
 import gradio as gr
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from modules.api.models import *
 from modules.api import api
 
-# Import CivitaiDownloader class (UI registration is protected by global flag)
-from scripts.civitai_downloader import CivitaiDownloader
+# Import CivitaiDownloader class using absolute path to avoid conflicts
+import importlib.util
+spec = importlib.util.spec_from_file_location(
+    "civitai_downloader",
+    Path(__file__).parent / "civitai_downloader.py"
+)
+civitai_downloader_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(civitai_downloader_module)
+CivitaiDownloader = civitai_downloader_module.CivitaiDownloader
 
 # Create separate instance for API to avoid conflicts
 downloader = CivitaiDownloader()
