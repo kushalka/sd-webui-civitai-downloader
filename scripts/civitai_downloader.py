@@ -248,7 +248,16 @@ class CivitaiDownloader:
 # Create a single global instance
 downloader = CivitaiDownloader()
 
+# Global variable to cache UI tab and prevent recreation
+_cached_ui_tab = None
+
 def on_ui_tabs():
+    global _cached_ui_tab
+    
+    # Return cached tab if it exists
+    if _cached_ui_tab is not None:
+        return _cached_ui_tab
+    
     with gr.Blocks(analytics_enabled=False) as civitai_downloader_tab:
         gr.Markdown("# 📥 Civitai LoRA Downloader")
         gr.Markdown("Скачивайте LoRA модели с Civitai по ссылке")
@@ -301,7 +310,9 @@ def on_ui_tabs():
             outputs=[output_text]
         )
     
-    return [(civitai_downloader_tab, "Civitai Downloader", "civitai_downloader")]
+    # Cache the result to prevent duplicate UI creation
+    _cached_ui_tab = [(civitai_downloader_tab, "Civitai Downloader", "civitai_downloader")]
+    return _cached_ui_tab
 
 # Only register UI tabs once
 # Guard against duplicate registration when imported by other modules
