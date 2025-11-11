@@ -303,7 +303,16 @@ def on_ui_tabs():
     
     return [(civitai_downloader_tab, "Civitai Downloader", "civitai_downloader")]
 
-# Only register UI tabs when module is loaded directly by the extension system
-# This prevents duplicate registration when imported by other modules
+# Only register UI tabs once
+# Guard against duplicate registration when imported by other modules
+_ui_registered = False
+
+def register_ui():
+    global _ui_registered
+    if not _ui_registered:
+        script_callbacks.on_ui_tabs(on_ui_tabs)
+        _ui_registered = True
+
+# Register UI only when loaded as extension, not when imported as module
 if __name__ != "__main__":
-    script_callbacks.on_ui_tabs(on_ui_tabs)
+    register_ui()

@@ -10,9 +10,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from modules.api.models import *
 from modules.api import api
+
+# Import CivitaiDownloader class (UI registration is protected by global flag)
 from scripts.civitai_downloader import CivitaiDownloader
 
-# Create separate instance for API to avoid circular imports and duplicate UI registration
+# Create separate instance for API to avoid conflicts
 downloader = CivitaiDownloader()
 
 
