@@ -1,150 +1,72 @@
-# Civitai LoRA Downloader для Stable Diffusion WebUI
+# Civitai Downloader REST API for Stable Diffusion WebUI
 
-Расширение для автоматического скачивания LoRA моделей с Civitai по ссылке с поддержкой API ключа.
+REST API extension for downloading Civitai models via HTTP requests.
 
-## Возможности
+## Features
 
-- 📥 Скачивание LoRA моделей по ссылке с Civitai
-- 🔑 Поддержка API ключа Civitai для доступа к ранним релизам
-- 📊 Отображение прогресса скачивания
-- ✅ Автоматическое определение версии модели
-- 💾 Сохранение в стандартную папку Lora
-- 🤖 **REST API для интеграции с Telegram ботами** (новое!)
+- 📥 Download models from Civitai via REST API
+- 🔑 Support for Civitai API keys
+- 🤖 Telegram bot integration ready
+- 💾 Automatic saving to Lora folder
 
-## Установка
+## Installation
 
-### Способ 1: Через Git (рекомендуется)
-
-1. Откройте терминал в папке `extensions` вашего Stable Diffusion WebUI
-2. Выполните команду:
 ```bash
-git clone https://github.com/ваш-username/sd-webui-civitai-downloader.git
+cd extensions
+git clone https://github.com/kushalka/sd-webui-civitai-downloader.git
 ```
 
-### Способ 2: Ручная установка
+Restart Stable Diffusion WebUI with `--api` flag.
 
-1. Скачайте этот репозиторий
-2. Распакуйте в папку `extensions/sd-webui-civitai-downloader` вашего Stable Diffusion WebUI
-3. Перезапустите WebUI
+## Usage
 
-### Способ 3: Через интерфейс WebUI
+### Start WebUI with API enabled
 
-1. Откройте вкладку "Extensions"
-2. Перейдите в "Install from URL"
-3. Вставьте URL репозитория: `https://github.com/ваш-username/sd-webui-civitai-downloader`
-4. Нажмите "Install"
-5. Перезапустите WebUI
-
-## Использование
-
-1. Запустите Stable Diffusion WebUI
-2. Перейдите на вкладку "Civitai Downloader"
-3. Вставьте ссылку на LoRA модель с Civitai (например: `https://civitai.com/models/123456`)
-4. (Опционально) Введите ваш API ключ Civitai
-5. Нажмите кнопку "📥 Скачать"
-6. Дождитесь завершения скачивания
-
-## Получение API ключа Civitai
-
-1. Войдите на сайт [Civitai](https://civitai.com)
-2. Перейдите в **Settings** → **API Keys**
-3. Нажмите **"Add API Key"**
-4. Скопируйте созданный ключ
-5. Вставьте его в поле "API ключ Civitai" в расширении
-
-> **Примечание:** API ключ необходим только для скачивания моделей с ранним доступом или приватных моделей.
-
-### Дефолтный API ключ (опционально)
-
-Если вы хотите установить API ключ по умолчанию для всех пользователей:
-
-1. Переименуйте `default_api_key.txt.example` в `default_api_key.txt`
-2. Откройте файл и вставьте ваш API ключ
-3. Сохраните файл
-
-Ключ из этого файла будет использоваться автоматически, если пользователь не ввёл свой собственный ключ.
-
-## Поддерживаемые форматы ссылок
-
-- `https://civitai.com/models/123456` - автоматически скачается последняя версия
-- `https://civitai.com/models/123456?modelVersionId=789` - скачается указанная версия
-
-## Интеграция с Telegram ботом
-
-Расширение предоставляет REST API, который позволяет вашему Telegram боту удалённо скачивать модели на все ваши PC с SD WebUI!
-
-### Быстрый старт
-
-1. Запустите WebUI с флагами `--api` и `--listen`:
-   ```bash
-   python webui.py --api --listen
-   ```
-
-2. Проверьте доступность API:
-   ```bash
-   curl http://localhost:7860/civitai/status
-   ```
-
-3. Используйте в вашем Telegram боте:
-   ```python
-   import requests
-   
-   response = requests.post(
-       "http://192.168.1.100:7860/civitai/download",
-       json={
-           "url": "https://civitai.com/models/123456",
-           "api_key": "your_civitai_api_key"  # Опционально
-       }
-   )
-   
-   result = response.json()
-   print(f"Downloaded: {result['filename']}")
-   ```
-
-### Подробная документация
-
-📚 **Смотрите [API_INTEGRATION.md](API_INTEGRATION.md)** - полная документация по интеграции с Telegram ботом
-
-📦 **Смотрите [telegram_bot_example.py](telegram_bot_example.py)** - готовые примеры кода для aiogram и python-telegram-bot
-
-## Требования
-
-- Stable Diffusion WebUI (AUTOMATIC1111)
-- Python 3.8+
-- Библиотека `requests` (обычно уже установлена)
-
-## Структура проекта
-
-```
-sd-webui-civitai-downloader/
-├── scripts/
-│   ├── civitai_downloader.py  # Основной скрипт расширения
-│   └── civitai_api.py         # REST API для Telegram ботов
-├── README.md                   # Основная документация
-├── API_INTEGRATION.md         # Документация API
-└── telegram_bot_example.py    # Примеры интеграции с ботом
-```
-
-## Устранение неполадок
-
-### Ошибка "Module not found: requests"
 ```bash
-pip install requests
+python webui.py --api --listen
 ```
 
-### Модель не скачивается
-- Проверьте правильность ссылки
-- Убедитесь, что у вас есть доступ к модели (публичная или есть API ключ)
-- Проверьте подключение к интернету
+## API Endpoints
 
-### Файл не появляется в списке Lora
-- Перезагрузите список Lora в WebUI (кнопка обновления)
-- Проверьте путь к папке Lora в настройках WebUI
+### Check Status
+```bash
+curl http://localhost:7860/civitai/status
+```
 
-## Лицензия
+### Download Model
+```bash
+curl -X POST http://localhost:7860/civitai/download \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://civitai.com/models/123456",
+    "api_key": "your_civitai_api_key"
+  }'
+```
 
-MIT License
+### Python Example
+```python
+import requests
 
-## Автор
+response = requests.post(
+    "http://localhost:7860/civitai/download",
+    json={
+        "url": "https://civitai.com/models/123456",
+        "api_key": "your_civitai_api_key"
+    }
+)
 
-Создано для удобства работы с Civitai и Stable Diffusion WebUI
+result = response.json()
+if result["success"]:
+    print(f"Downloaded: {result['filename']}")
+else:
+    print(f"Error: {result['error']}")
+```
+
+## Documentation
+
+- [API_INTEGRATION.md](API_INTEGRATION.md) - Full API documentation
+- [telegram_bot_example.py](telegram_bot_example.py) - Telegram bot examples
+
+## License
+
+MIT

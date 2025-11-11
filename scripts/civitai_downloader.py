@@ -2,9 +2,8 @@ import os
 import re
 import json
 import requests
-import gradio as gr
 from pathlib import Path
-from modules import script_callbacks, shared, scripts
+from modules import shared, scripts
 
 class CivitaiDownloader:
     def __init__(self):
@@ -131,7 +130,7 @@ class CivitaiDownloader:
         except Exception as e:
             return None, f"Ошибка запроса: {str(e)}"
     
-    def download_model(self, url, api_key, progress=gr.Progress()):
+    def download_model(self, url, api_key, progress=None):
         """Download LoRA model from Civitai"""
         self.api_key = api_key.strip() if api_key else None
         
@@ -155,13 +154,15 @@ class CivitaiDownloader:
         if not url:
             return "❌ Введите ссылку на модель"
         
-        progress(0, desc="Извлечение ID модели...")
+        if progress:
+            progress(0, desc="Извлечение ID модели...")
         version_id, error = self.extract_model_id(url)
         
         if error:
             return f"❌ {error}"
         
-        progress(0.2, desc="Получение информации о модели...")
+        if progress:
+            progress(0.2, desc="Получение информации о модели...")
         model_info, error = self.get_model_info(version_id)
         
         if error:
@@ -186,7 +187,8 @@ class CivitaiDownloader:
         # Ensure directory exists
         os.makedirs(os.path.dirname(lora_path), exist_ok=True)
         
-        progress(0.3, desc=f"Скачивание {filename}...")
+        if progress:
+            progress(0.3, desc=f"Скачивание {filename}...")
         
         try:
             response = requests.get(download_url, stream=True, timeout=120)
@@ -210,7 +212,7 @@ class CivitaiDownloader:
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
-                        if total_size > 0:
+                        if total_size > 0 and progress:
                             progress_val = 0.3 + (downloaded / total_size) * 0.7
                             progress(progress_val, desc=f"Скачивание: {downloaded / 1024 / 1024:.1f} / {total_size / 1024 / 1024:.1f} MB")
             
@@ -247,83 +249,3 @@ class CivitaiDownloader:
 
 # Create a single global instance
 downloader = CivitaiDownloader()
-
-# Global variable to cache UI tab and prevent recreation
-_cached_ui_tab = None
-
-def on_ui_tabs():
-    global _cached_ui_tab
-    
-    # Return cached tab if it exists
-    if _cached_ui_tab is not None:
-        return _cached_ui_tab
-    
-    with gr.Blocks(analytics_enabled=False) as civitai_downloader_tab:
-        gr.Markdown("# 📥 Civitai LoRA Downloader")
-        gr.Markdown("Скачивайте LoRA модели с Civitai по ссылке")
-        
-        with gr.Row():
-            with gr.Column():
-                url_input = gr.Textbox(
-                    label="Ссылка на модель Civitai",
-                    placeholder="https://civitai.com/models/123456 или https://civitai.com/models/123456?modelVersionId=789",
-                    lines=1
-                )
-                
-                api_key_input = gr.Textbox(
-                    label="API ключ Civitai (автоматически сохраняется)",
-                    placeholder="Ваш API ключ",
-                    type="password",
-                    lines=1
-                )
-                
-                download_btn = gr.Button("📥 Скачать", variant="primary", size="lg")
-                
-                output_text = gr.Textbox(
-                    label="Статус",
-                    lines=10,
-                    interactive=False
-                )
-        
-        gr.Markdown("""
-        ### Инструкция:
-        1. Скопируйте ссылку на LoRA модель с Civitai
-        2. Вставьте ссылку в поле выше
-        3. (Опционально) Введите ваш API ключ для доступа к ранним релизам
-        4. Нажмите "Скачать"
-        
-        ### Получение API ключа:
-        1. Войдите на сайт [Civitai](https://civitai.com)
-        2. Перейдите в Settings → API Keys
-        3. Создайте новый ключ и скопируйте его
-        """)
-        
-        # Load API key on tab load
-        civitai_downloader_tab.load(
-            fn=lambda: downloader.load_api_key(),
-            outputs=[api_key_input]
-        )
-        
-        download_btn.click(
-            fn=downloader.download_model,
-            inputs=[url_input, api_key_input],
-            outputs=[output_text]
-        )
-    
-    # Cache the result to prevent duplicate UI creation
-    _cached_ui_tab = [(civitai_downloader_tab, "Civitai Downloader", "civitai_downloader")]
-    return _cached_ui_tab
-
-# Only register UI tabs once
-# Guard against duplicate registration when imported by other modules
-_ui_registered = False
-
-def register_ui():
-    global _ui_registered
-    if not _ui_registered:
-        script_callbacks.on_ui_tabs(on_ui_tabs)
-        _ui_registered = True
-
-# Register UI only when loaded as extension, not when imported as module
-if __name__ != "__main__":
-    register_ui()
