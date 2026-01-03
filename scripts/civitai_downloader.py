@@ -105,10 +105,10 @@ class CivitaiDownloader:
                 return None, f"Ошибка сервера Civitai (код {response.status_code})"
         except requests.exceptions.Timeout:
             return None, "Превышено время ожидания. Проверьте подключение к интернету"
-        except requests.exceptions.ConnectionError as e:
-            return None, f"Не удалось подключиться к Civitai. Проверьте подключение к интернету: {str(e)}"
         except requests.exceptions.SSLError as e:
             return None, f"Ошибка SSL соединения: {str(e)}"
+        except requests.exceptions.ConnectionError as e:
+            return None, f"Не удалось подключиться к Civitai. Проверьте подключение к интернету: {str(e)}"
         except requests.exceptions.RequestException as e:
             return None, f"Ошибка запроса к API: {str(e)}"
         except Exception as e:
@@ -145,10 +145,10 @@ class CivitaiDownloader:
                 return None, f"Ошибка сервера Civitai (код {response.status_code})"
         except requests.exceptions.Timeout:
             return None, "Превышено время ожидания. Проверьте интернет-соединение"
-        except requests.exceptions.ConnectionError as e:
-            return None, f"Не удалось подключиться к Civitai. Проверьте интернет: {str(e)}"
         except requests.exceptions.SSLError as e:
             return None, f"Ошибка SSL соединения: {str(e)}"
+        except requests.exceptions.ConnectionError as e:
+            return None, f"Не удалось подключиться к Civitai. Проверьте интернет: {str(e)}"
         except requests.exceptions.RequestException as e:
             return None, f"Ошибка запроса к API: {str(e)}"
         except Exception as e:
@@ -312,6 +312,14 @@ class CivitaiDownloader:
                     continue  # Retry
                 return "❌ Превышено время ожидания. Файл слишком большой или медленное соединение"
             
+            except requests.exceptions.SSLError as e:
+                if os.path.exists(lora_path):
+                    try:
+                        os.remove(lora_path)
+                    except:
+                        pass
+                return f"❌ Ошибка SSL соединения: {str(e)}"
+            
             except requests.exceptions.ConnectionError as e:
                 if os.path.exists(lora_path):
                     try:
@@ -321,14 +329,6 @@ class CivitaiDownloader:
                 if attempt < max_retries - 1:
                     continue  # Retry
                 return f"❌ Потеряно соединение с интернетом во время скачивания: {str(e)}"
-            
-            except requests.exceptions.SSLError as e:
-                if os.path.exists(lora_path):
-                    try:
-                        os.remove(lora_path)
-                    except:
-                        pass
-                return f"❌ Ошибка SSL соединения: {str(e)}"
             
             except requests.exceptions.HTTPError as e:
                 if os.path.exists(lora_path):
