@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 import gradio as gr
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 from modules.api.models import *
 from modules.api import api
@@ -40,6 +40,14 @@ class DownloadResponse(BaseModel):
     path: str = None
     model_name: str = None
     version_name: str = None
+    error: str = None
+
+
+class UploadResponse(BaseModel):
+    success: bool
+    message: str
+    filename: str = None
+    path: str = None
     error: str = None
 
 
@@ -352,6 +360,136 @@ def civitai_api(_: gr.Blocks, app):
                 success=False,
                 message=f"Unexpected error: {str(e)}",
                 error=f"Unexpected error: {str(e)}"
+            )
+    
+    @app.post("/civitai/upload")
+    async def upload_safetensors_file(
+        file: UploadFile = File(...),
+        filename: str = Form(None)
+    ):
+        """
+        Upload a safetensors file from Telegram bot
+        
+        Parameters:
+        - file: safetensors file (required, only .safetensors format)
+        - filename: Optional custom filename (if not provided, uses original filename)
+        
+        Returns:
+        - success: Whether upload was successful
+        - message: Status message
+        - filename: Saved file name
+        - path: Full path to saved file
+        """
+        saved_path = None
+        try:
+            # Validate file extension
+            original_filename = file.filename
+            if not original_filename:
+                return UploadResponse(
+                    success=False,
+                    message="No filename provided",
+                    error="No filename provided"
+                )
+            
+            # Check if file has .safetensors extension
+            if not original_filename.lower().endswith('.safetensors'):
+                return UploadResponse(
+                    success=False,
+                    message="Invalid file format. Only .safetensors files are allowed",
+                    error=f"Invalid file format: {original_filename}. Only .safetensors files are allowed"
+                )
+            
+            # Use custom filename if provided, otherwise use original
+            final_filename = filename if filename else original_filename
+            
+            # Ensure custom filename also has .safetensors extension
+            if filename and not final_filename.lower().endswith('.safetensors'):
+                final_filename = f"{final_filename}.safetensors"
+            
+            # Determine save path
+            from modules import shared
+            save_dir = shared.cmd_opts.lora_dir if hasattr(shared.cmd_opts, 'lora_dir') else 'models/Lora'
+            save_path = os.path.join(save_dir, final_filename)
+            
+            # Check if file already exists
+            if os.path.exists(save_path):
+                file_size = os.path.getsize(save_path)
+                file_size_mb = file_size / 1024 / 1024
+                error_msg = (
+                    f"File already exists: {final_filename}\n"
+                    f"Path: {save_path}\n"
+                    f"Size: {file_size_mb:.2f} MB\n"
+                    f"Please use a different filename or remove the existing file first."
+                )
+                return UploadResponse(
+                    success=False,
+                    message=error_msg,
+                    error=error_msg
+                )
+            
+            # Ensure directory exists
+            os.makedirs(save_dir, exist_ok=True)
+            
+            # Save file
+            try:
+                with open(save_path, 'wb') as f:
+                    # Read file in chunks to handle large files
+                    while True:
+                        chunk = await file.read(8192)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                
+                # Verify file was saved correctly
+                if not os.path.exists(save_path):
+                    return UploadResponse(
+                        success=False,
+                        message="File was not saved",
+                        error="File was not saved"
+                    )
+                
+                file_size = os.path.getsize(save_path)
+                if file_size == 0:
+                    if os.path.exists(save_path):
+                        os.remove(save_path)
+                    return UploadResponse(
+                        success=False,
+                        message="Uploaded empty file",
+                        error="Uploaded empty file"
+                    )
+                
+                saved_path = save_path
+                
+                return UploadResponse(
+                    success=True,
+                    message=f"File uploaded successfully ({file_size / 1024 / 1024:.2f} MB)",
+                    filename=final_filename,
+                    path=save_path
+                )
+            
+            except OSError as e:
+                if os.path.exists(save_path):
+                    try:
+                        os.remove(save_path)
+                    except:
+                        pass
+                return UploadResponse(
+                    success=False,
+                    message=f"File write error: {e}. Check permissions and disk space",
+                    error=f"File write error: {e}. Check permissions and disk space"
+                )
+        
+        except Exception as e:
+            # Clean up on error
+            if saved_path and os.path.exists(saved_path):
+                try:
+                    os.remove(saved_path)
+                except:
+                    pass
+            return UploadResponse(
+                success=False,
+                message=f"Upload error: {str(e)}",
+                error=f"Upload error: {str(e)}"
             )
     
     @app.get("/civitai/status")

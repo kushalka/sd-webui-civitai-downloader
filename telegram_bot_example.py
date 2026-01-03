@@ -7,6 +7,7 @@
 
 import requests
 import json
+import os
 from typing import List, Dict, Optional
 
 
@@ -136,6 +137,121 @@ class CivitaiDownloaderClient:
             if self.check_server_status(server["url"]):
                 available.append(server["name"])
         return available
+    
+    def upload_file(
+        self,
+        server_url: str,
+        file_path: str,
+        custom_filename: Optional[str] = None
+    ) -> Dict:
+        """
+        Загрузка safetensors файла на указанный сервер
+        
+        Args:
+            server_url: URL сервера SD WebUI (например, http://192.168.1.100:7860)
+            file_path: Путь к safetensors файлу на локальной машине
+            custom_filename: Опциональное имя файла (если не указано, используется оригинальное имя)
+        
+        Returns:
+            Словарь с результатом:
+            {
+                "success": True/False,
+                "message": "...",
+                "filename": "...",
+                "path": "..."
+            }
+        """
+        try:
+            # Проверка существования файла
+            if not os.path.exists(file_path):
+                return {
+                    "success": False,
+                    "message": f"Файл не найден: {file_path}"
+                }
+            
+            # Проверка расширения файла
+            if not file_path.lower().endswith('.safetensors'):
+                return {
+                    "success": False,
+                    "message": "Поддерживаются только файлы формата .safetensors"
+                }
+            
+            # Подготовка данных для отправки
+            with open(file_path, 'rb') as f:
+                files = {'file': (os.path.basename(file_path), f, 'application/octet-stream')}
+                data = {}
+                if custom_filename:
+                    data['filename'] = custom_filename
+                
+                response = requests.post(
+                    f"{server_url}/civitai/upload",
+                    files=files,
+                    data=data,
+                    timeout=300  # 5 минут на загрузку
+                )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "success": False,
+                    "message": f"Error {response.status_code}: {response.text}"
+                }
+        
+        except FileNotFoundError:
+            return {
+                "success": False,
+                "message": f"Файл не найден: {file_path}"
+            }
+        except requests.exceptions.Timeout:
+            return {
+                "success": False,
+                "message": "Timeout: загрузка заняла слишком много времени"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Ошибка: {str(e)}"
+            }
+    
+    def upload_to_all_servers(
+        self,
+        file_path: str,
+        custom_filename: Optional[str] = None
+    ) -> Dict[str, Dict]:
+        """
+        Загрузка safetensors файла на все доступные серверы
+        
+        Args:
+            file_path: Путь к safetensors файлу на локальной машине
+            custom_filename: Опциональное имя файла
+        
+        Returns:
+            Словарь с результатами для каждого сервера:
+            {
+                "PC1": {"success": True, ...},
+                "PC2": {"success": False, ...}
+            }
+        """
+        results = {}
+        
+        for server in self.servers:
+            server_name = server["name"]
+            server_url = server["url"]
+            
+            # Проверка доступности
+            if not self.check_server_status(server_url):
+                results[server_name] = {
+                    "success": False,
+                    "message": "Сервер недоступен"
+                }
+                continue
+            
+            # Загрузка
+            result = self.upload_file(server_url, file_path, custom_filename)
+            results[server_name] = result
+        
+        return results
 
 
 # ============================================================================
@@ -175,6 +291,29 @@ def example_telegram_bot():
     
     # ===== Пример 3: Скачивание на все серверы =====
     results = client.download_to_all_servers(civitai_url, api_key)
+    
+    for server_name, result in results.items():
+        if result["success"]:
+            print(f"✅ {server_name}: {result['filename']}")
+        else:
+            print(f"❌ {server_name}: {result['message']}")
+    
+    # ===== Пример 4: Загрузка safetensors файла =====
+    safetensors_file = "model.safetensors"  # Путь к файлу на локальной машине
+    result = client.upload_file(
+        server_url="http://192.168.1.100:7860",
+        file_path=safetensors_file,
+        custom_filename="my_model.safetensors"  # Опционально
+    )
+    
+    if result["success"]:
+        print(f"✅ Файл загружен: {result['filename']}")
+        print(f"Путь: {result['path']}")
+    else:
+        print(f"❌ Ошибка: {result['message']}")
+    
+    # ===== Пример 5: Загрузка на все серверы =====
+    results = client.upload_to_all_servers(safetensors_file)
     
     for server_name, result in results.items():
         if result["success"]:
@@ -250,6 +389,44 @@ async def servers_command(message: types.Message):
         status_lines.append(f"{status} {server['name']}")
     
     await message.reply("\n".join(status_lines))
+
+@dp.message(lambda m: m.document and m.document.file_name.endswith('.safetensors'))
+async def handle_safetensors_file(message: types.Message):
+    """Обработка safetensors файла, отправленного в Telegram"""
+    try:
+        # Скачиваем файл из Telegram
+        file_info = await bot.get_file(message.document.file_id)
+        file_path = f"/tmp/{message.document.file_name}"
+        
+        await bot.download_file(file_info.file_path, file_path)
+        
+        await message.reply("⏳ Загружаю файл на серверы...")
+        
+        # Загружаем на все серверы
+        results = client.upload_to_all_servers(file_path)
+        
+        # Формируем ответ
+        response_lines = ["📊 Результаты загрузки:\n"]
+        for server_name, result in results.items():
+            if result["success"]:
+                response_lines.append(
+                    f"✅ {server_name}:\n"
+                    f"  📦 {result['filename']}\n"
+                    f"  📁 {result['path']}"
+                )
+            else:
+                response_lines.append(
+                    f"❌ {server_name}: {result['message']}"
+                )
+        
+        # Удаляем временный файл
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        
+        await message.reply("\n\n".join(response_lines))
+    
+    except Exception as e:
+        await message.reply(f"❌ Ошибка при обработке файла: {str(e)}")
 
 # Запуск бота
 if __name__ == "__main__":
