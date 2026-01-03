@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 import requests
 from pathlib import Path
 from modules import shared, scripts
@@ -10,6 +11,13 @@ class CivitaiDownloader:
         self.api_key = None
         self.config_file = os.path.join(scripts.basedir(), "civitai_api_key.json")
         self.default_key_file = os.path.join(scripts.basedir(), "default_api_key.txt")
+        
+        # Create session for connection reuse
+        self.session = requests.Session()
+        # Set User-Agent to avoid blocking
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        })
         
     def load_api_key(self):
         """Load saved API key from config file"""
@@ -70,7 +78,7 @@ class CivitaiDownloader:
             if self.api_key:
                 headers['Authorization'] = f'Bearer {self.api_key}'
             
-            response = requests.get(
+            response = self.session.get(
                 f'https://civitai.com/api/v1/models/{model_id}',
                 headers=headers,
                 timeout=30
@@ -82,9 +90,13 @@ class CivitaiDownloader:
                     return str(data['modelVersions'][0]['id']), None
                 return None, "Модель не содержит версий для скачивания"
             elif response.status_code == 401:
-                return None, "Неверный API ключ. Проверьте ключ или удалите его для публичных моделей"
+                api_key_info = "\n\n💡 Получить API ключ: https://civitai.com/user/account" if not self.api_key else ""
+                return None, f"Неверный API ключ или ключ не предоставлен. Проверьте ключ или получите новый на Civitai.{api_key_info}"
             elif response.status_code == 403:
-                return None, "Доступ запрещён. Возможно, модель приватная и требует API ключ"
+                if not self.api_key:
+                    return None, "❌ Доступ запрещён. Эта модель требует API ключ Civitai.\n\n💡 Решение:\n1. Получите API ключ: https://civitai.com/user/account\n2. Введите ключ в поле 'API ключ' перед скачиванием\n3. Или создайте файл 'default_api_key.txt' с вашим ключом"
+                else:
+                    return None, "Доступ запрещён. Проверьте правильность API ключа или права доступа к модели"
             elif response.status_code == 404:
                 return None, "Модель не найдена. Проверьте правильность ссылки"
             elif response.status_code == 429:
@@ -93,10 +105,14 @@ class CivitaiDownloader:
                 return None, f"Ошибка сервера Civitai (код {response.status_code})"
         except requests.exceptions.Timeout:
             return None, "Превышено время ожидания. Проверьте подключение к интернету"
-        except requests.exceptions.ConnectionError:
-            return None, "Не удалось подключиться к Civitai. Проверьте подключение к интернету"
+        except requests.exceptions.ConnectionError as e:
+            return None, f"Не удалось подключиться к Civitai. Проверьте подключение к интернету: {str(e)}"
+        except requests.exceptions.SSLError as e:
+            return None, f"Ошибка SSL соединения: {str(e)}"
+        except requests.exceptions.RequestException as e:
+            return None, f"Ошибка запроса к API: {str(e)}"
         except Exception as e:
-            return None, f"Ошибка при запросе к API: {str(e)}"
+            return None, f"Неожиданная ошибка при запросе к API: {str(e)}"
     
     def get_model_info(self, version_id):
         """Get model information from Civitai API"""
@@ -105,7 +121,7 @@ class CivitaiDownloader:
             if self.api_key:
                 headers['Authorization'] = f'Bearer {self.api_key}'
             
-            response = requests.get(
+            response = self.session.get(
                 f'https://civitai.com/api/v1/model-versions/{version_id}',
                 headers=headers,
                 timeout=30
@@ -114,9 +130,13 @@ class CivitaiDownloader:
             if response.status_code == 200:
                 return response.json(), None
             elif response.status_code == 401:
-                return None, "Неверный API ключ. Проверьте ключ или удалите его"
+                api_key_info = "\n\n💡 Получить API ключ: https://civitai.com/user/account" if not self.api_key else ""
+                return None, f"Неверный API ключ или ключ не предоставлен. Проверьте ключ.{api_key_info}"
             elif response.status_code == 403:
-                return None, "Доступ запрещён. Модель требует API ключ или недоступна"
+                if not self.api_key:
+                    return None, "❌ Доступ запрещён. Эта модель требует API ключ Civitai.\n\n💡 Решение:\n1. Получите API ключ: https://civitai.com/user/account\n2. Введите ключ в поле 'API ключ' перед скачиванием\n3. Или создайте файл 'default_api_key.txt' с вашим ключом"
+                else:
+                    return None, "Доступ запрещён. Проверьте правильность API ключа или права доступа к модели"
             elif response.status_code == 404:
                 return None, "Версия модели не найдена"
             elif response.status_code == 429:
@@ -125,10 +145,14 @@ class CivitaiDownloader:
                 return None, f"Ошибка сервера Civitai (код {response.status_code})"
         except requests.exceptions.Timeout:
             return None, "Превышено время ожидания. Проверьте интернет-соединение"
-        except requests.exceptions.ConnectionError:
-            return None, "Не удалось подключиться к Civitai. Проверьте интернет"
+        except requests.exceptions.ConnectionError as e:
+            return None, f"Не удалось подключиться к Civitai. Проверьте интернет: {str(e)}"
+        except requests.exceptions.SSLError as e:
+            return None, f"Ошибка SSL соединения: {str(e)}"
+        except requests.exceptions.RequestException as e:
+            return None, f"Ошибка запроса к API: {str(e)}"
         except Exception as e:
-            return None, f"Ошибка запроса: {str(e)}"
+            return None, f"Неожиданная ошибка при запросе: {str(e)}"
     
     def download_model(self, url, api_key, progress=None):
         """Download LoRA model from Civitai"""
@@ -190,62 +214,171 @@ class CivitaiDownloader:
         if progress:
             progress(0.3, desc=f"Скачивание {filename}...")
         
-        try:
-            response = requests.get(download_url, stream=True, timeout=120)
-            
-            if response.status_code == 401:
-                return "❌ Ошибка авторизации. Проверьте API ключ"
-            elif response.status_code == 403:
-                return "❌ Доступ запрещён. Возможно, модель требует API ключ или подписку"
-            elif response.status_code == 404:
-                return "❌ Файл не найден. Возможно, модель была удалена"
-            elif response.status_code == 429:
-                return "❌ Превышен лимит скачиваний. Попробуйте позже"
-            
-            response.raise_for_status()
-            
-            total_size = int(response.headers.get('content-length', 0))
-            downloaded = 0
-            
-            with open(lora_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total_size > 0 and progress:
-                            progress_val = 0.3 + (downloaded / total_size) * 0.7
-                            progress(progress_val, desc=f"Скачивание: {downloaded / 1024 / 1024:.1f} / {total_size / 1024 / 1024:.1f} MB")
-            
-            # Verify file was downloaded
-            if os.path.exists(lora_path) and os.path.getsize(lora_path) == 0:
-                os.remove(lora_path)
-                return "❌ Скачан пустой файл. Попробуйте снова"
-            
-            model_name = model_info.get('model', {}).get('name', 'Unknown')
-            version_name = model_info.get('name', '')
-            
-            return f"✅ Успешно скачано!\n\nМодель: {model_name}\nВерсия: {version_name}\nФайл: {filename}\nПуть: {lora_path}"
+        # Download with retry mechanism
+        max_retries = 3
+        retry_delay = 2  # seconds
         
-        except requests.exceptions.Timeout:
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    if progress:
+                        progress(0.3, desc=f"Повторная попытка {attempt + 1}/{max_retries}...")
+                    time.sleep(retry_delay * attempt)  # Exponential backoff
+                    # Clean up partial file before retry
+                    if os.path.exists(lora_path):
+                        try:
+                            os.remove(lora_path)
+                        except:
+                            pass
+                
+                response = self.session.get(download_url, stream=True, timeout=300)
+                
+                if response.status_code == 401:
+                    if not self.api_key:
+                        return "❌ Ошибка авторизации. Модель требует API ключ.\n\n💡 Получите ключ: https://civitai.com/user/account\nЗатем введите его в поле 'API ключ'"
+                    else:
+                        return "❌ Ошибка авторизации. Проверьте правильность API ключа или получите новый: https://civitai.com/user/account"
+                elif response.status_code == 403:
+                    if not self.api_key:
+                        return "❌ Доступ запрещён. Эта модель требует API ключ Civitai.\n\n💡 Решение:\n1. Получите API ключ: https://civitai.com/user/account\n2. Введите ключ в поле 'API ключ' перед скачиванием\n3. Или создайте файл 'default_api_key.txt' с вашим ключом"
+                    else:
+                        return "❌ Доступ запрещён. Проверьте правильность API ключа или права доступа к модели"
+                elif response.status_code == 404:
+                    return "❌ Файл не найден. Возможно, модель была удалена"
+                elif response.status_code == 429:
+                    return "❌ Превышен лимит скачиваний. Попробуйте позже"
+                
+                response.raise_for_status()
+                
+                total_size = int(response.headers.get('content-length', 0))
+                downloaded = 0
+                
+                try:
+                    with open(lora_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                if total_size > 0 and progress:
+                                    progress_val = 0.3 + (downloaded / total_size) * 0.7
+                                    progress(progress_val, desc=f"Скачивание: {downloaded / 1024 / 1024:.1f} / {total_size / 1024 / 1024:.1f} MB")
+                    
+                    # Verify file was downloaded correctly
+                    if not os.path.exists(lora_path):
+                        raise Exception("Файл не был создан")
+                    
+                    file_size = os.path.getsize(lora_path)
+                    if file_size == 0:
+                        if os.path.exists(lora_path):
+                            os.remove(lora_path)
+                        raise Exception("Скачан пустой файл")
+                    
+                    # Verify file size matches expected size (if content-length was provided)
+                    if total_size > 0 and file_size != total_size:
+                        if os.path.exists(lora_path):
+                            os.remove(lora_path)
+                        raise Exception(f"Размер файла не совпадает: получено {file_size}, ожидалось {total_size}")
+                    
+                    # Success - break out of retry loop
+                    break
+                    
+                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError) as e:
+                    # Connection errors during download - retry if attempts left
+                    if os.path.exists(lora_path):
+                        try:
+                            os.remove(lora_path)
+                        except:
+                            pass
+                    if attempt < max_retries - 1:
+                        continue  # Retry
+                    else:
+                        raise  # Last attempt failed, re-raise
+                except OSError as e:
+                    # File system errors - don't retry
+                    if os.path.exists(lora_path):
+                        try:
+                            os.remove(lora_path)
+                        except:
+                            pass
+                    raise
+                
+            except requests.exceptions.Timeout:
+                if os.path.exists(lora_path):
+                    try:
+                        os.remove(lora_path)
+                    except:
+                        pass
+                if attempt < max_retries - 1:
+                    continue  # Retry
+                return "❌ Превышено время ожидания. Файл слишком большой или медленное соединение"
+            
+            except requests.exceptions.ConnectionError as e:
+                if os.path.exists(lora_path):
+                    try:
+                        os.remove(lora_path)
+                    except:
+                        pass
+                if attempt < max_retries - 1:
+                    continue  # Retry
+                return f"❌ Потеряно соединение с интернетом во время скачивания: {str(e)}"
+            
+            except requests.exceptions.SSLError as e:
+                if os.path.exists(lora_path):
+                    try:
+                        os.remove(lora_path)
+                    except:
+                        pass
+                return f"❌ Ошибка SSL соединения: {str(e)}"
+            
+            except requests.exceptions.HTTPError as e:
+                if os.path.exists(lora_path):
+                    try:
+                        os.remove(lora_path)
+                    except:
+                        pass
+                return f"❌ Ошибка HTTP при скачивании: {e}"
+            
+            except requests.exceptions.RequestException as e:
+                if os.path.exists(lora_path):
+                    try:
+                        os.remove(lora_path)
+                    except:
+                        pass
+                if attempt < max_retries - 1:
+                    continue  # Retry
+                return f"❌ Ошибка сетевого запроса: {str(e)}"
+            
+            except OSError as e:
+                if os.path.exists(lora_path):
+                    try:
+                        os.remove(lora_path)
+                    except:
+                        pass
+                return f"❌ Ошибка записи файла: {e}. Проверьте права доступа и свободное место"
+            
+            except Exception as e:
+                if os.path.exists(lora_path):
+                    try:
+                        os.remove(lora_path)
+                    except:
+                        pass
+                if attempt < max_retries - 1 and "размер файла" not in str(e).lower() and "пустой файл" not in str(e).lower():
+                    continue  # Retry for certain errors
+                return f"❌ Ошибка при скачивании: {str(e)}"
+        else:
+            # All retries exhausted
             if os.path.exists(lora_path):
-                os.remove(lora_path)
-            return "❌ Превышено время ожидания. Файл слишком большой или медленное соединение"
-        except requests.exceptions.ConnectionError:
-            if os.path.exists(lora_path):
-                os.remove(lora_path)
-            return "❌ Потеряно соединение с интернетом во время скачивания"
-        except requests.exceptions.HTTPError as e:
-            if os.path.exists(lora_path):
-                os.remove(lora_path)
-            return f"❌ Ошибка HTTP при скачивании: {e}"
-        except OSError as e:
-            if os.path.exists(lora_path):
-                os.remove(lora_path)
-            return f"❌ Ошибка записи файла: {e}. Проверьте права доступа и свободное место"
-        except Exception as e:
-            if os.path.exists(lora_path):
-                os.remove(lora_path)
-            return f"❌ Неизвестная ошибка: {str(e)}"
+                try:
+                    os.remove(lora_path)
+                except:
+                    pass
+            return "❌ Не удалось скачать файл после нескольких попыток"
+        
+        # Success
+        model_name = model_info.get('model', {}).get('name', 'Unknown')
+        version_name = model_info.get('name', '')
+        
+        return f"✅ Успешно скачано!\n\nМодель: {model_name}\nВерсия: {version_name}\nФайл: {filename}\nПуть: {lora_path}"
 
 # Create a single global instance
 downloader = CivitaiDownloader()

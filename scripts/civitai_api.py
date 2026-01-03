@@ -6,6 +6,7 @@ Allows external bots to download models via HTTP requests
 import os
 import json
 import sys
+import time
 from pathlib import Path
 import gradio as gr
 from fastapi import APIRouter, HTTPException
@@ -118,57 +119,214 @@ def civitai_api(_: gr.Blocks, app):
             # Ensure directory exists
             os.makedirs(os.path.dirname(lora_path), exist_ok=True)
             
-            # Download file
+            # Download file with retry mechanism
             import requests
-            response = requests.get(download_url, stream=True, timeout=120)
+            max_retries = 3
+            retry_delay = 2  # seconds
             
-            if response.status_code == 401:
+            for attempt in range(max_retries):
+                try:
+                    if attempt > 0:
+                        # Clean up partial file before retry
+                        if os.path.exists(lora_path):
+                            try:
+                                os.remove(lora_path)
+                            except:
+                                pass
+                        time.sleep(retry_delay * attempt)  # Exponential backoff
+                    
+                    response = downloader.session.get(download_url, stream=True, timeout=300)
+                    
+                    if response.status_code == 401:
+                        if not downloader.api_key:
+                            msg = "Authorization error. Model requires API key. Get your key at: https://civitai.com/user/account"
+                        else:
+                            msg = "Authorization error. Check API key or get a new one at: https://civitai.com/user/account"
+                        return DownloadResponse(
+                            success=False,
+                            message=msg,
+                            error=msg
+                        )
+                    elif response.status_code == 403:
+                        if not downloader.api_key:
+                            msg = "Access forbidden. This model requires Civitai API key.\n\nSolution:\n1. Get API key: https://civitai.com/user/account\n2. Provide it in 'api_key' parameter\n3. Or create 'default_api_key.txt' file with your key"
+                        else:
+                            msg = "Access forbidden. Check API key validity or access rights to the model"
+                        return DownloadResponse(
+                            success=False,
+                            message=msg,
+                            error=msg
+                        )
+                    elif response.status_code == 404:
+                        return DownloadResponse(
+                            success=False,
+                            message="File not found. Model may have been deleted",
+                            error="File not found. Model may have been deleted"
+                        )
+                    elif response.status_code == 429:
+                        return DownloadResponse(
+                            success=False,
+                            message="Download limit exceeded. Try later",
+                            error="Download limit exceeded. Try later"
+                        )
+                    elif response.status_code != 200:
+                        return DownloadResponse(
+                            success=False,
+                            message=f"HTTP error {response.status_code}",
+                            error=f"HTTP error {response.status_code}"
+                        )
+                    
+                    total_size = int(response.headers.get('content-length', 0))
+                    downloaded = 0
+                    
+                    try:
+                        with open(lora_path, 'wb') as f:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+                                    downloaded += len(chunk)
+                        
+                        # Verify file was downloaded correctly
+                        if not os.path.exists(lora_path):
+                            raise Exception("File was not created")
+                        
+                        file_size = os.path.getsize(lora_path)
+                        if file_size == 0:
+                            if os.path.exists(lora_path):
+                                os.remove(lora_path)
+                            raise Exception("Downloaded empty file")
+                        
+                        # Verify file size matches expected size (if content-length was provided)
+                        if total_size > 0 and file_size != total_size:
+                            if os.path.exists(lora_path):
+                                os.remove(lora_path)
+                            raise Exception(f"File size mismatch: got {file_size}, expected {total_size}")
+                        
+                        # Success - break out of retry loop
+                        break
+                        
+                    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError) as e:
+                        # Connection errors during download - retry if attempts left
+                        if os.path.exists(lora_path):
+                            try:
+                                os.remove(lora_path)
+                            except:
+                                pass
+                        if attempt < max_retries - 1:
+                            continue  # Retry
+                        else:
+                            raise  # Last attempt failed, re-raise
+                    except OSError as e:
+                        # File system errors - don't retry
+                        if os.path.exists(lora_path):
+                            try:
+                                os.remove(lora_path)
+                            except:
+                                pass
+                        raise
+                
+                except requests.exceptions.Timeout:
+                    if os.path.exists(lora_path):
+                        try:
+                            os.remove(lora_path)
+                        except:
+                            pass
+                    if attempt < max_retries - 1:
+                        continue  # Retry
+                    return DownloadResponse(
+                        success=False,
+                        message="Timeout. File too large or slow connection",
+                        error="Timeout. File too large or slow connection"
+                    )
+                
+                except requests.exceptions.ConnectionError as e:
+                    if os.path.exists(lora_path):
+                        try:
+                            os.remove(lora_path)
+                        except:
+                            pass
+                    if attempt < max_retries - 1:
+                        continue  # Retry
+                    return DownloadResponse(
+                        success=False,
+                        message=f"Connection lost during download: {str(e)}",
+                        error=f"Connection lost during download: {str(e)}"
+                    )
+                
+                except requests.exceptions.SSLError as e:
+                    if os.path.exists(lora_path):
+                        try:
+                            os.remove(lora_path)
+                        except:
+                            pass
+                    return DownloadResponse(
+                        success=False,
+                        message=f"SSL connection error: {str(e)}",
+                        error=f"SSL connection error: {str(e)}"
+                    )
+                
+                except requests.exceptions.HTTPError as e:
+                    if os.path.exists(lora_path):
+                        try:
+                            os.remove(lora_path)
+                        except:
+                            pass
+                    return DownloadResponse(
+                        success=False,
+                        message=f"HTTP error during download: {e}",
+                        error=f"HTTP error during download: {e}"
+                    )
+                
+                except requests.exceptions.RequestException as e:
+                    if os.path.exists(lora_path):
+                        try:
+                            os.remove(lora_path)
+                        except:
+                            pass
+                    if attempt < max_retries - 1:
+                        continue  # Retry
+                    return DownloadResponse(
+                        success=False,
+                        message=f"Network request error: {str(e)}",
+                        error=f"Network request error: {str(e)}"
+                    )
+                
+                except OSError as e:
+                    if os.path.exists(lora_path):
+                        try:
+                            os.remove(lora_path)
+                        except:
+                            pass
+                    return DownloadResponse(
+                        success=False,
+                        message=f"File write error: {e}. Check permissions and disk space",
+                        error=f"File write error: {e}. Check permissions and disk space"
+                    )
+                
+                except Exception as e:
+                    if os.path.exists(lora_path):
+                        try:
+                            os.remove(lora_path)
+                        except:
+                            pass
+                    if attempt < max_retries - 1 and "file size" not in str(e).lower() and "empty file" not in str(e).lower():
+                        continue  # Retry for certain errors
+                    return DownloadResponse(
+                        success=False,
+                        message=f"Download error: {str(e)}",
+                        error=f"Download error: {str(e)}"
+                    )
+            else:
+                # All retries exhausted
+                if os.path.exists(lora_path):
+                    try:
+                        os.remove(lora_path)
+                    except:
+                        pass
                 return DownloadResponse(
                     success=False,
-                    message="Authorization error. Check API key",
-                    error="Authorization error. Check API key"
-                )
-            elif response.status_code == 403:
-                return DownloadResponse(
-                    success=False,
-                    message="Access forbidden. Model may require API key or subscription",
-                    error="Access forbidden. Model may require API key or subscription"
-                )
-            elif response.status_code == 404:
-                return DownloadResponse(
-                    success=False,
-                    message="File not found. Model may have been deleted",
-                    error="File not found. Model may have been deleted"
-                )
-            elif response.status_code == 429:
-                return DownloadResponse(
-                    success=False,
-                    message="Download limit exceeded. Try later",
-                    error="Download limit exceeded. Try later"
-                )
-            elif response.status_code != 200:
-                return DownloadResponse(
-                    success=False,
-                    message=f"HTTP error {response.status_code}",
-                    error=f"HTTP error {response.status_code}"
-                )
-            
-            total_size = int(response.headers.get('content-length', 0))
-            downloaded = 0
-            
-            with open(lora_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-            
-            # Verify file was downloaded
-            if os.path.exists(lora_path) and os.path.getsize(lora_path) == 0:
-                os.remove(lora_path)
-                return DownloadResponse(
-                    success=False,
-                    message="Downloaded empty file",
-                    error="Downloaded empty file"
+                    message="Failed to download file after multiple attempts",
+                    error="Failed to download file after multiple attempts"
                 )
             
             model_name = model_info.get('model', {}).get('name', 'Unknown')
@@ -183,25 +341,13 @@ def civitai_api(_: gr.Blocks, app):
                 version_name=version_name
             )
         
-        except requests.exceptions.Timeout:
-            if lora_path and os.path.exists(lora_path):
-                os.remove(lora_path)
-            return DownloadResponse(
-                success=False,
-                message="Timeout. File too large or slow connection",
-                error="Timeout. File too large or slow connection"
-            )
-        except requests.exceptions.ConnectionError:
-            if lora_path and os.path.exists(lora_path):
-                os.remove(lora_path)
-            return DownloadResponse(
-                success=False,
-                message="Connection lost during download",
-                error="Connection lost during download"
-            )
         except Exception as e:
+            # Final catch-all for any unexpected errors outside download loop
             if lora_path and os.path.exists(lora_path):
-                os.remove(lora_path)
+                try:
+                    os.remove(lora_path)
+                except:
+                    pass
             return DownloadResponse(
                 success=False,
                 message=f"Unexpected error: {str(e)}",
