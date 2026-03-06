@@ -511,13 +511,13 @@ async def fetch_previews_command(message: types.Message):
 
     results = client.fetch_previews_all_servers(api_key)
 
-    response_lines = ["📊 Результаты скачивания превью:\\n"]
+    response_lines = ["📊 Результаты скачивания превью:\n"]
     for server_name, result in results.items():
         if result.get("success"):
             response_lines.append(
-                f"✅ {server_name}:\\n"
-                f"  📥 Скачано: {result.get('downloaded', 0)}\\n"
-                f"  ⏭ Пропущено: {result.get('skipped', 0)}\\n"
+                f"✅ {server_name}:\n"
+                f"  📥 Скачано: {result.get('downloaded', 0)}\n"
+                f"  ⏭ Пропущено: {result.get('skipped', 0)}\n"
                 f"  ❌ Ошибок: {result.get('failed', 0)}"
             )
         else:
@@ -525,7 +525,7 @@ async def fetch_previews_command(message: types.Message):
                 f"❌ {server_name}: {result['message']}"
             )
 
-    await message.reply("\\n\\n".join(response_lines))
+    await message.reply("\n\n".join(response_lines))
 
 @dp.message(lambda m: m.document and m.document.file_name.endswith('.safetensors'))
 async def handle_safetensors_file(message: types.Message):

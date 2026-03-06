@@ -7,6 +7,7 @@ import os
 import json
 import sys
 import time
+from typing import Optional, List
 from pathlib import Path
 import gradio as gr
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
@@ -50,6 +51,27 @@ class UploadResponse(BaseModel):
     filename: str = None
     path: str = None
     error: str = None
+
+
+class FetchPreviewsRequest(BaseModel):
+    api_key: Optional[str] = None
+
+
+class FetchPreviewResult(BaseModel):
+    file: str
+    status: str
+    preview: Optional[str] = None
+    error: Optional[str] = None
+
+
+class FetchPreviewsResponse(BaseModel):
+    success: bool
+    message: str
+    total: int = 0
+    downloaded: int = 0
+    failed: int = 0
+    skipped: int = 0
+    results: List[FetchPreviewResult] = []
 
 
 def civitai_api(_: gr.Blocks, app):
@@ -503,7 +525,7 @@ def civitai_api(_: gr.Blocks, app):
             )
     
     @app.post("/civitai/fetch-previews")
-    async def fetch_all_previews(request: DownloadRequest = None):
+    async def fetch_all_previews(request: FetchPreviewsRequest = None):
         """
         Scan all LoRA files on the node and download missing preview images from CivitAI.
         Identifies models by SHA256 hash lookup.
@@ -525,13 +547,20 @@ def civitai_api(_: gr.Blocks, app):
             if request and request.api_key:
                 api_key = request.api_key
             result = downloader.fetch_all_previews(api_key)
-            return result
+            return FetchPreviewsResponse(
+                success=result.get("success", False),
+                message=result.get("message", ""),
+                total=result.get("total", 0),
+                downloaded=result.get("downloaded", 0),
+                failed=result.get("failed", 0),
+                skipped=result.get("skipped", 0),
+                results=[FetchPreviewResult(**r) for r in result.get("results", [])]
+            )
         except Exception as e:
-            return {
-                "success": False,
-                "message": f"Unexpected error: {str(e)}",
-                "results": []
-            }
+            return FetchPreviewsResponse(
+                success=False,
+                message=f"Unexpected error: {str(e)}"
+            )
 
     @app.get("/civitai/status")
     async def get_status():

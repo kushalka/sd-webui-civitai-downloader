@@ -297,7 +297,6 @@ class CivitaiDownloader:
             # Replace width in URL with original width for full resolution
             original_width = image.get('width')
             if original_width:
-                import re
                 image_url = re.sub(r'/width=\d+', f'/width={original_width}', image_url)
 
             # Determine preview file path: model_name.preview.png
