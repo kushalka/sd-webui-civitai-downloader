@@ -138,6 +138,88 @@ class CivitaiDownloaderClient:
                 available.append(server["name"])
         return available
     
+    def fetch_previews(
+        self,
+        server_url: str,
+        api_key: Optional[str] = None
+    ) -> Dict:
+        """
+        Скачивание превью для всех LoRA на указанном сервере.
+        Сканирует папку LoRA, находит файлы без превью,
+        ищет их на CivitAI по SHA256 хешу и скачивает превью.
+
+        Args:
+            server_url: URL сервера SD WebUI
+            api_key: API ключ Civitai (опционально)
+
+        Returns:
+            Словарь с результатом:
+            {
+                "success": True/False,
+                "message": "...",
+                "total": 10,
+                "downloaded": 7,
+                "failed": 1,
+                "skipped": 2,
+                "results": [...]
+            }
+        """
+        try:
+            payload = {"url": "", "api_key": api_key}
+
+            response = requests.post(
+                f"{server_url}/civitai/fetch-previews",
+                json=payload,
+                timeout=600  # 10 минут — хеширование больших файлов занимает время
+            )
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                return {
+                    "success": False,
+                    "message": f"Error {response.status_code}: {response.text}"
+                }
+
+        except requests.exceptions.Timeout:
+            return {
+                "success": False,
+                "message": "Timeout: операция заняла слишком много времени"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Ошибка: {str(e)}"
+            }
+
+    def fetch_previews_all_servers(
+        self,
+        api_key: Optional[str] = None
+    ) -> Dict[str, Dict]:
+        """
+        Скачивание превью для всех LoRA на всех серверах
+
+        Returns:
+            Словарь с результатами для каждого сервера
+        """
+        results = {}
+
+        for server in self.servers:
+            server_name = server["name"]
+            server_url = server["url"]
+
+            if not self.check_server_status(server_url):
+                results[server_name] = {
+                    "success": False,
+                    "message": "Сервер недоступен"
+                }
+                continue
+
+            result = self.fetch_previews(server_url, api_key)
+            results[server_name] = result
+
+        return results
+
     def upload_file(
         self,
         server_url: str,
@@ -312,7 +394,29 @@ def example_telegram_bot():
     else:
         print(f"❌ Ошибка: {result['message']}")
     
-    # ===== Пример 5: Загрузка на все серверы =====
+    # ===== Пример 5: Скачивание превью для всех LoRA =====
+    result = client.fetch_previews(
+        server_url="http://192.168.1.100:7860",
+        api_key=api_key
+    )
+
+    if result["success"]:
+        print(f"✅ Превью: скачано {result.get('downloaded', 0)}, "
+              f"пропущено {result.get('skipped', 0)}, "
+              f"ошибок {result.get('failed', 0)}")
+    else:
+        print(f"❌ Ошибка: {result['message']}")
+
+    # ===== Пример 6: Скачивание превью на всех серверах =====
+    results = client.fetch_previews_all_servers(api_key)
+
+    for server_name, result in results.items():
+        if result["success"]:
+            print(f"✅ {server_name}: скачано {result.get('downloaded', 0)} превью")
+        else:
+            print(f"❌ {server_name}: {result['message']}")
+
+    # ===== Пример 7: Загрузка на все серверы =====
     results = client.upload_to_all_servers(safetensors_file)
     
     for server_name, result in results.items():
@@ -389,6 +493,39 @@ async def servers_command(message: types.Message):
         status_lines.append(f"{status} {server['name']}")
     
     await message.reply("\n".join(status_lines))
+
+@dp.message(Command("fetch_previews"))
+async def fetch_previews_command(message: types.Message):
+    # Скачивание превью для всех LoRA на всех серверах
+    # Формат: /fetch_previews [api_key]
+
+    args = message.text.split(maxsplit=1)
+    api_key = args[1] if len(args) > 1 else None
+
+    available = client.get_available_servers()
+    if not available:
+        await message.reply("❌ Нет доступных серверов")
+        return
+
+    await message.reply(f"⏳ Скачиваю превью на {len(available)} серверах... Это может занять время.")
+
+    results = client.fetch_previews_all_servers(api_key)
+
+    response_lines = ["📊 Результаты скачивания превью:\\n"]
+    for server_name, result in results.items():
+        if result.get("success"):
+            response_lines.append(
+                f"✅ {server_name}:\\n"
+                f"  📥 Скачано: {result.get('downloaded', 0)}\\n"
+                f"  ⏭ Пропущено: {result.get('skipped', 0)}\\n"
+                f"  ❌ Ошибок: {result.get('failed', 0)}"
+            )
+        else:
+            response_lines.append(
+                f"❌ {server_name}: {result['message']}"
+            )
+
+    await message.reply("\\n\\n".join(response_lines))
 
 @dp.message(lambda m: m.document and m.document.file_name.endswith('.safetensors'))
 async def handle_safetensors_file(message: types.Message):

@@ -2,6 +2,7 @@ import os
 import re
 import json
 import time
+import hashlib
 import requests
 from pathlib import Path
 from modules import shared, scripts
@@ -154,6 +155,167 @@ class CivitaiDownloader:
         except Exception as e:
             return None, f"Неожиданная ошибка при запросе: {str(e)}"
     
+    def compute_file_sha256(self, file_path):
+        """Compute SHA256 hash of a file"""
+        sha256 = hashlib.sha256()
+        with open(file_path, 'rb') as f:
+            for chunk in iter(lambda: f.read(65536), b''):
+                sha256.update(chunk)
+        return sha256.hexdigest().upper()
+
+    def get_model_info_by_hash(self, file_hash):
+        """Get model version info from CivitAI by file SHA256 hash"""
+        try:
+            headers = {}
+            if self.api_key:
+                headers['Authorization'] = f'Bearer {self.api_key}'
+
+            response = self.session.get(
+                f'https://civitai.com/api/v1/model-versions/by-hash/{file_hash}',
+                headers=headers,
+                timeout=30
+            )
+
+            if response.status_code == 200:
+                return response.json(), None
+            elif response.status_code == 404:
+                return None, "not_found"
+            elif response.status_code == 429:
+                return None, "rate_limit"
+            else:
+                return None, f"http_{response.status_code}"
+        except Exception as e:
+            return None, str(e)
+
+    def fetch_all_previews(self, api_key=None):
+        """Scan all LoRA files and download missing preview images"""
+        self.api_key = api_key.strip() if api_key else None
+        if not self.api_key:
+            default_key = self.load_default_api_key()
+            if default_key:
+                self.api_key = default_key
+
+        lora_dir = shared.cmd_opts.lora_dir if hasattr(shared.cmd_opts, 'lora_dir') else 'models/Lora'
+        if not os.path.exists(lora_dir):
+            return {"success": False, "message": "LoRA directory not found", "results": []}
+
+        # Collect all model files without previews
+        model_extensions = ('.safetensors', '.pt', '.ckpt')
+        preview_extensions = ('.preview.png', '.preview.jpg', '.preview.jpeg', '.preview.webp')
+        files_to_process = []
+
+        for root, _, files in os.walk(lora_dir):
+            for fname in files:
+                if not fname.lower().endswith(model_extensions):
+                    continue
+                file_path = os.path.join(root, fname)
+                base_name = os.path.splitext(file_path)[0]
+                # Check if any preview already exists
+                has_preview = any(
+                    os.path.exists(f"{base_name}{ext}") for ext in preview_extensions
+                )
+                if not has_preview:
+                    files_to_process.append(file_path)
+
+        if not files_to_process:
+            return {
+                "success": True,
+                "message": "All LoRA files already have previews",
+                "total": 0,
+                "downloaded": 0,
+                "failed": 0,
+                "skipped": 0,
+                "results": []
+            }
+
+        results = []
+        downloaded = 0
+        failed = 0
+        skipped = 0
+
+        for file_path in files_to_process:
+            fname = os.path.basename(file_path)
+            try:
+                print(f"[Civitai Downloader] Computing hash for {fname}...")
+                file_hash = self.compute_file_sha256(file_path)
+
+                model_info, error = self.get_model_info_by_hash(file_hash)
+
+                if error == "rate_limit":
+                    # Wait and retry once on rate limit
+                    time.sleep(5)
+                    model_info, error = self.get_model_info_by_hash(file_hash)
+
+                if error == "not_found":
+                    skipped += 1
+                    results.append({"file": fname, "status": "not_found"})
+                    continue
+
+                if error or not model_info:
+                    failed += 1
+                    results.append({"file": fname, "status": "error", "error": error})
+                    continue
+
+                preview_path = self.download_preview(model_info, file_path)
+                if preview_path:
+                    downloaded += 1
+                    results.append({"file": fname, "status": "downloaded", "preview": preview_path})
+                else:
+                    skipped += 1
+                    results.append({"file": fname, "status": "no_images"})
+
+                # Small delay to avoid rate limiting
+                time.sleep(1)
+
+            except Exception as e:
+                failed += 1
+                results.append({"file": fname, "status": "error", "error": str(e)})
+
+        return {
+            "success": True,
+            "message": f"Done. Downloaded: {downloaded}, skipped: {skipped}, failed: {failed}",
+            "total": len(files_to_process),
+            "downloaded": downloaded,
+            "failed": failed,
+            "skipped": skipped,
+            "results": results
+        }
+
+    def download_preview(self, model_info, lora_path):
+        """Download preview image for the model and save it next to the model file"""
+        try:
+            images = model_info.get('images', [])
+            if not images:
+                return None
+
+            # Get the first image (primary preview)
+            image = images[0]
+            image_url = image.get('url', '')
+            if not image_url:
+                return None
+
+            # Replace width in URL with original width for full resolution
+            original_width = image.get('width')
+            if original_width:
+                import re
+                image_url = re.sub(r'/width=\d+', f'/width={original_width}', image_url)
+
+            # Determine preview file path: model_name.preview.png
+            base_name = os.path.splitext(lora_path)[0]
+            preview_path = f"{base_name}.preview.png"
+
+            headers = {}
+            if self.api_key:
+                headers['Authorization'] = f'Bearer {self.api_key}'
+            response = self.session.get(image_url, headers=headers, timeout=60)
+            if response.status_code == 200 and len(response.content) > 0:
+                with open(preview_path, 'wb') as f:
+                    f.write(response.content)
+                return preview_path
+        except Exception as e:
+            print(f"[Civitai Downloader] Failed to download preview: {e}")
+        return None
+
     def download_model(self, url, api_key, progress=None):
         """Download LoRA model from Civitai"""
         self.api_key = api_key.strip() if api_key else None
@@ -377,8 +539,14 @@ class CivitaiDownloader:
         # Success
         model_name = model_info.get('model', {}).get('name', 'Unknown')
         version_name = model_info.get('name', '')
-        
-        return f"✅ Успешно скачано!\n\nМодель: {model_name}\nВерсия: {version_name}\nФайл: {filename}\nПуть: {lora_path}"
+
+        # Download preview image
+        if progress:
+            progress(0.95, desc="Скачивание превью...")
+        preview_path = self.download_preview(model_info, lora_path)
+        preview_msg = f"\nПревью: {preview_path}" if preview_path else "\nПревью: не найдено"
+
+        return f"✅ Успешно скачано!\n\nМодель: {model_name}\nВерсия: {version_name}\nФайл: {filename}\nПуть: {lora_path}{preview_msg}"
 
 # Create a single global instance
 downloader = CivitaiDownloader()

@@ -40,6 +40,7 @@ class DownloadResponse(BaseModel):
     path: str = None
     model_name: str = None
     version_name: str = None
+    preview_path: str = None
     error: str = None
 
 
@@ -339,14 +340,23 @@ def civitai_api(_: gr.Blocks, app):
             
             model_name = model_info.get('model', {}).get('name', 'Unknown')
             version_name = model_info.get('name', '')
-            
+
+            # Download preview image
+            try:
+                preview_path = downloader.download_preview(model_info, lora_path)
+            except Exception as e:
+                model_identifier = model_info.get('model', {}).get('name', '') or model_info.get('id', 'unknown')
+                print(f"[Civitai API] Warning: Failed to download preview for {model_identifier}: {e}")
+                preview_path = None
+
             return DownloadResponse(
                 success=True,
                 message="Model downloaded successfully",
                 filename=filename,
                 path=lora_path,
                 model_name=model_name,
-                version_name=version_name
+                version_name=version_name,
+                preview_path=preview_path
             )
         
         except Exception as e:
@@ -492,6 +502,37 @@ def civitai_api(_: gr.Blocks, app):
                 error=f"Upload error: {str(e)}"
             )
     
+    @app.post("/civitai/fetch-previews")
+    async def fetch_all_previews(request: DownloadRequest = None):
+        """
+        Scan all LoRA files on the node and download missing preview images from CivitAI.
+        Identifies models by SHA256 hash lookup.
+
+        Parameters:
+        - api_key: Optional Civitai API key
+
+        Returns:
+        - success: Whether operation completed
+        - message: Summary message
+        - total: Total LoRA files without previews
+        - downloaded: Number of previews downloaded
+        - failed: Number of failures
+        - skipped: Number of skipped (not found on CivitAI or no images)
+        - results: Per-file details
+        """
+        try:
+            api_key = None
+            if request and request.api_key:
+                api_key = request.api_key
+            result = downloader.fetch_all_previews(api_key)
+            return result
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Unexpected error: {str(e)}",
+                "results": []
+            }
+
     @app.get("/civitai/status")
     async def get_status():
         """Health check endpoint"""
