@@ -8,6 +8,8 @@ from pathlib import Path
 from modules import shared, scripts
 
 class CivitaiDownloader:
+    MODEL_EXTENSIONS = ('.safetensors', '.pt', '.ckpt')
+
     def __init__(self):
         self.api_key = None
         self.config_file = os.path.join(scripts.basedir(), "civitai_api_key.json")
@@ -50,6 +52,26 @@ class CivitaiDownloader:
                 json.dump({'api_key': api_key}, f)
         except Exception as e:
             print(f"Error saving API key: {e}")
+
+    @classmethod
+    def select_model_file(cls, model_info):
+        """Select a usable LoRA model file and ignore training archives."""
+        candidates = []
+        for file_info in model_info.get('files') or []:
+            name = str(file_info.get('name') or '')
+            if name.lower().endswith(cls.MODEL_EXTENSIONS):
+                candidates.append(file_info)
+
+        if not candidates:
+            return None
+
+        return min(
+            candidates,
+            key=lambda item: (
+                str(item.get('type') or '').casefold() != 'model',
+                item.get('primary') is not True,
+            ),
+        )
         
     def extract_model_id(self, url):
         """Extract model version ID from Civitai URL"""
@@ -357,7 +379,9 @@ class CivitaiDownloader:
         if 'files' not in model_info or len(model_info['files']) == 0:
             return "❌ Файлы для скачивания не найдены"
         
-        file_info = model_info['files'][0]
+        file_info = self.select_model_file(model_info)
+        if not file_info:
+            return "❌ Версия не содержит поддерживаемого файла модели (.safetensors, .pt или .ckpt)"
         download_url = file_info['downloadUrl']
         filename = file_info['name']
         

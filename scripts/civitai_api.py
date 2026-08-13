@@ -131,7 +131,14 @@ def civitai_api(_: gr.Blocks, app):
                     error="No files found for download"
                 )
             
-            file_info = model_info['files'][0]
+            file_info = downloader.select_model_file(model_info)
+            if not file_info:
+                error = "No supported model file found (.safetensors, .pt, or .ckpt)"
+                return DownloadResponse(
+                    success=False,
+                    message=error,
+                    error=error
+                )
             download_url = file_info['downloadUrl']
             filename = file_info['name']
             
