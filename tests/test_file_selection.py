@@ -60,3 +60,41 @@ def test_rejects_version_with_only_auxiliary_files():
     }
 
     assert CivitaiDownloader.select_model_file(files) is None
+import pytest
+
+
+@pytest.mark.parametrize(
+    ("model_type", "expected"),
+    [
+        ("Checkpoint", "custom/checkpoints"),
+        ("LORA", "custom/lora"),
+        ("LoCon", "custom/lora"),
+        ("Embedding", "custom/embeddings"),
+        ("TextualInversion", "custom/embeddings"),
+    ],
+)
+def test_destination_matches_civitai_model_type(monkeypatch, model_type, expected):
+    monkeypatch.setattr(
+        module.shared,
+        "cmd_opts",
+        types.SimpleNamespace(
+            lora_dir="custom/lora",
+            ckpt_dir="custom/checkpoints",
+            embeddings_dir="custom/embeddings",
+        ),
+        raising=False,
+    )
+
+    assert CivitaiDownloader.model_directory({"model": {"type": model_type}}) == expected
+
+
+def test_unknown_model_type_is_not_routed_to_lora(monkeypatch):
+    monkeypatch.setattr(
+        module.shared,
+        "cmd_opts",
+        types.SimpleNamespace(lora_dir="custom/lora"),
+        raising=False,
+    )
+
+    with pytest.raises(ValueError, match="Unsupported Civitai model type: unknown"):
+        CivitaiDownloader.model_directory({"model": {"type": "Unknown"}})

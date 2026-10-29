@@ -72,6 +72,18 @@ class CivitaiDownloader:
                 item.get('primary') is not True,
             ),
         )
+
+    @staticmethod
+    def model_directory(model_info):
+        """Return the WebUI directory for the model's Civitai type."""
+        model_type = (model_info.get('model') or {}).get('type', '').casefold()
+        if model_type == 'checkpoint':
+            return getattr(shared.cmd_opts, 'ckpt_dir', 'models/Stable-diffusion')
+        if model_type in ('embedding', 'textualinversion'):
+            return getattr(shared.cmd_opts, 'embeddings_dir', 'embeddings')
+        if model_type in ('lora', 'locon'):
+            return getattr(shared.cmd_opts, 'lora_dir', 'models/Lora')
+        raise ValueError(f"Unsupported Civitai model type: {model_type or 'unknown'}")
         
     def extract_model_id(self, url):
         """Extract model version ID from Civitai URL"""
@@ -391,7 +403,7 @@ class CivitaiDownloader:
             download_url = f"{download_url}{separator}token={self.api_key}"
         
         # Determine save path
-        lora_path = os.path.join(shared.cmd_opts.lora_dir if hasattr(shared.cmd_opts, 'lora_dir') else 'models/Lora', filename)
+        lora_path = os.path.join(self.model_directory(model_info), filename)
         
         # Ensure directory exists
         os.makedirs(os.path.dirname(lora_path), exist_ok=True)
